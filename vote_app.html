@@ -1,0 +1,1948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Voting Simulator</title>
+<style>
+  /* ---- Self-contained styling; no external fonts/CDNs ---- */
+  :root {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --ink: #1a2027;
+    --muted: #5c6a7a;
+    --line: #d9e0e8;
+    --accent: #2563eb;
+    /* Being PICKED is BAD -> style it as a "loser" (red), not a green winner. */
+    --pick-bg: #fdeaea;
+    --pick-border: #d64545;
+    --pick-badge: #c0392b;
+    --bar: #94a3b8;
+    --bar-track: #eef2f7;
+    /* Poll-meter (simulated votes) colors — deliberately DISTINCT from the
+       gray "% chance" bar so users don't confuse predicted chance with the
+       actual simulated vote tally. Cyan fill on a light-cyan track. */
+    --poll-bar: #0891b2;
+    --poll-track: #e2f2f6;
+    --sim-btn: #0891b2;
+    --sim-btn-hover: #0e7490;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+    padding: 24px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .intro { font-size: 0.9rem; color: var(--muted); margin: 0 0 12px; }
+  .howto {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 12px 0 20px;
+    font-size: 0.92rem;
+    color: var(--muted);
+  }
+  .howto strong { color: var(--ink); }
+
+  /* ---- Page switcher tabs (Best avoid being picked / Best get picked) ---- */
+  .tabs { display: flex; gap: 6px; margin: 10px 0 0; }
+  .tab-btn {
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 18px;
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: #e7edf3;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .tab-btn:hover { background: #dde5ee; color: var(--ink); }
+  .tab-btn[aria-selected="true"] {
+    background: var(--panel);
+    color: var(--ink);
+    border-color: var(--accent);
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+  .tab-btn:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* Only the active page's content is shown. */
+  .page[hidden] { display: none; }
+
+  .weights-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 18px;
+  }
+  .weights-panel h2 { font-size: 0.95rem; margin: 0 8px 0 0; align-self: center; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+  input[type="text"], input[type="number"] {
+    font: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+  }
+  input[type="number"] { width: 84px; text-align: right; }
+  input[type="text"] { width: 160px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+  /* ---- Randomness control panel ---- */
+  .randomness-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+  .randomness-panel h2 { font-size: 0.95rem; margin: 0 0 10px; }
+  .slider-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .slider-row input[type="range"] { flex: 1 1 320px; min-width: 220px; accent-color: var(--accent); }
+  .slider-ends { display: flex; justify-content: space-between; font-size: 0.74rem; color: var(--muted); margin-top: 4px; }
+  .readout { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+  .readout strong { color: var(--ink); }
+  .draw-btn {
+    font: inherit;
+    font-weight: 700;
+    padding: 9px 20px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .draw-btn:hover { background: #1d4ed8; }
+  .draw-btn:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* Disabled state (e.g. buttons locked while a simulation animation runs). */
+  .draw-btn:disabled { opacity: 0.55; cursor: default; }
+  /* ---- "Simulate voting" button (poll simulation) — visually distinct from
+     the blue instant Draw button so the two actions are clearly separate. ---- */
+  .sim-btn { background: var(--sim-btn); }
+  .sim-btn:hover { background: var(--sim-btn-hover); }
+
+  /* ---- Reset button: secondary / utility action (NOT the primary Draw) ---- */
+  .reset-btn {
+    font: inherit;
+    font-weight: 600;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .reset-btn:hover { background: #f0f3f7; color: var(--ink); border-color: var(--muted); }
+  .reset-btn:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* ---- "Add option" button: secondary action that appends a new row. ---- */
+  .add-btn {
+    font: inherit;
+    font-weight: 700;
+    padding: 9px 16px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .add-btn:hover { background: #eef4ff; }
+  .add-btn:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  caption { text-align: left; font-size: 0.85rem; color: var(--muted); padding: 8px 4px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+  thead th { background: #eef2f7; font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  th.num, td.num { text-align: center; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .score-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /*SHOW/HIDE CHANCE COLUMN*/
+  table th:nth-child(6), 
+  table td:nth-child(6) {
+    display: none;
+  }
+
+  /* ---- % chance cell: number + inline bar ---- */
+  .chance-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .chance-num { display: inline-block; width: 58px; text-align: right; }
+/*  .bar-track {
+    display: inline-block;
+    vertical-align: middle;
+    width: 80px;
+    height: 8px;
+    margin-left: 8px;
+    background: var(--bar-track);
+    border-radius: 999px;
+    overflow: hidden;
+  }*/
+  .bar-fill { display: block; height: 100%; background: var(--bar); border-radius: 999px; }
+
+  /* PICKED emphasis — highlighted "loser/winner" styling. Kept IDENTICAL on
+     both pages (only the probability DIRECTION differs, not the styling). */
+  tr.picked { background: var(--pick-bg); }
+  tr.picked td { font-weight: 700; border-color: var(--pick-border); }
+  tr.picked .bar-fill { background: var(--pick-border); }
+  /* ---- Poll meter cell (simulated votes) — a SEPARATE column from "% chance".
+     Numeric "count (pct%)" readout + a wider animated horizontal bar that
+     fills as votes accumulate. Cyan by default; turns red on a PICKED row so
+     the winner reads consistently with the rest of the app. ---- */
+  .votes-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .votes-num { display: inline-block; width: 96px; text-align: center; }
+  .poll-track {
+    display: inline-block;
+    vertical-align: middle;
+    width: 90px;
+    height: 10px;
+    margin-left: 8px;
+    background: var(--poll-track);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .poll-fill {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--poll-bar);
+    border-radius: 999px;
+    /* Remove or minimize the transition so JS frames are immediate and smooth */
+    transition: width 0.01s linear; 
+  }
+/*  .poll-fill {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--poll-bar);
+    border-radius: 999px;
+    /* Small transition smooths the per-frame width jumps during the fill. */
+    transition: width 0.08s linear;
+  }*/
+  tr.picked .poll-fill { background: var(--pick-border); }
+  .badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #fff;
+    background: var(--pick-badge);
+    border-radius: 999px;
+    vertical-align: middle;
+  }
+  /* ---- Per-option image thumbnail + upload/remove controls (Feature 1) ---- */
+  /* Name cell layout: thumbnail on the left, name input + image controls stacked on the right. */
+  .opt-cell { display: flex; align-items: flex-start; gap: 10px; }
+  .opt-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  /* Fixed-size thumbnail; object-fit:cover keeps aspect ratio without distortion. */
+  .thumb {
+    width: 95px;
+    height: 95px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    background: #fff;
+    display: block;
+  }
+  /* Neutral placeholder box shown when an option has no image. */
+  .thumb-placeholder {
+    width: 95px;
+    height: 95px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    border: 1px dashed var(--line);
+    background: repeating-linear-gradient(45deg, #f0f3f7, #f0f3f7 6px, #e7edf3 6px, #e7edf3 12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.62rem;
+    text-align: center;
+    line-height: 1.1;
+  }
+  .img-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* Compact file input so the row stays tidy. */
+  .img-controls input[type="file"] { font: inherit; font-size: 0.72rem; max-width: 150px; }
+  /* Compact image-URL text field — an ALTERNATIVE to uploading a file. */
+  .img-controls input[type="url"] { font: inherit; font-size: 0.72rem; width: 150px; padding: 3px 6px; }
+  /* Small "×" button to clear an option's image. */
+  .remove-img-btn {
+    font: inherit;
+    line-height: 1;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .remove-img-btn:hover { background: #fdeaea; color: var(--pick-badge); border-color: var(--pick-border); }
+  .remove-img-btn:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .remove-img-btn[hidden] { display: none; }
+
+  /* ---- Per-row "Remove option" control — visually DISTINCT from the image
+     "×" clear button: a wider labeled button in its own end-of-row cell. It
+     removes the WHOLE option (row), not just its image. ---- */
+  .remove-opt-btn {
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .remove-opt-btn:hover:not(:disabled) { background: #fdeaea; color: var(--pick-badge); border-color: var(--pick-border); }
+  .remove-opt-btn:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .remove-opt-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ---- Per-row "Immune" toggle (PAGE 1 / cfg.allowExclude only) — marks an
+     option as EXCLUDED from selection (probability 0, no votes, never a
+     winner). Sits next to the "Remove" button. The pressed state
+     (aria-pressed="true") shows the option is currently immune. Deliberately
+     styled DIFFERENTLY from the red PICKED highlight (slate, not red). ---- */
+  .immune-btn {
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    margin-left: 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .immune-btn:hover { background: #eef4ff; color: var(--accent); border-color: var(--accent); }
+  .immune-btn:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+  /* Active/pressed = this option is currently immune. */
+  .immune-btn[aria-pressed="true"] {
+    background: #475569;
+    color: #fff;
+    border-color: #334155;
+  }
+  .immune-btn[aria-pressed="true"]:hover { background: #334155; color: #fff; }
+
+  /* An immune (excluded) row: subdued / greyed so it reads as "out of the
+     running", clearly distinct from both normal rows and the red PICKED row. */
+  tr.immune { background: #f1f3f5; opacity: 0.72; }
+  tr.immune td { color: var(--muted); }
+
+  /* Small "Immune" badge shown in the % chance cell in place of the bar. */
+  .immune-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #fff;
+    background: #64748b;
+    border-radius: 999px;
+    vertical-align: middle;
+  }
+
+  /* ---- "Number to pick" control (Feature 2) — sits inline near the Draw button. ---- */
+  .pick-field { display: flex; flex-direction: column; gap: 4px; }
+  .pick-field label { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+  .summary { margin-top: 16px; font-size: 1.05rem; }
+  .summary strong { color: var(--pick-badge); }
+  footer { margin-top: 22px; font-size: 0.8rem; color: var(--muted); }
+
+  /* Screen-reader-only utility for the otherwise-empty Actions column header. */
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Weighted Random Picker</h1>
+  <!-- Brief note about the two pages; each page's full rule is in its own
+       "How to use" box below. -->
+  <p class="intro">
+    Two modes: <strong>Elimination</strong> (higher stats = lower chance) and
+    <strong>Add To Team</strong> (higher stats = higher chance). Switch between them with the tabs;
+    each keeps its own options and saved setup.
+  </p>
+
+  <!-- Page switcher. Persisted in localStorage and restored on load. -->
+  <div class="tabs" role="tablist" aria-label="Picker mode">
+    <button type="button" class="tab-btn" role="tab" id="tab1" data-page="page1"
+            aria-controls="page1container" aria-selected="true">Elimination</button>
+    <button type="button" class="tab-btn" role="tab" id="tab2" data-page="page2"
+            aria-controls="page2container" aria-selected="false">Add To Team</button>
+  </div>
+
+  <!-- One independent page instance per container (own state + own storage). -->
+  <div class="page" id="page1container" role="tabpanel" aria-labelledby="tab1"></div>
+  <div class="page" id="page2container" role="tabpanel" aria-labelledby="tab2" hidden></div>
+
+  <footer>Scoring mirrors <code>vote_app.py</code>; selection is a weighted random draw. Fully offline — no frameworks, no network.</footer>
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   MODULE-LEVEL CONSTANTS.
+   IMPORTANT (temporal-dead-zone guard): every constant that any code path
+   (loadState / sanitizeState / the page factory) references at parse time is
+   declared HERE, BEFORE the factory is defined and BEFORE createPage() is
+   called at the very bottom. Declaring any of these later would put them in
+   the temporal dead zone and make load-time code throw, silently wiping saved
+   state.
+   ========================================================================= */
+
+const METRIC_KEYS = ["Freakiness", "Personality", "Performance"];
+
+/* Upper bound for the poll voter count (used by clampVoters + sanitizeState). */
+const VOTERS_MAX = 100000;
+
+/* -------------------------------------------------------------------------
+   POLL FILL ANIMATION DURATION — the single knob for the "Simulate voting"
+   meter-fill speed. Referenced by every page instance's doSimulate().
+   To SLOW the fill down, increase this value, e.g. change 1400 to 4000 for a
+   ~4-second fill. (Do not confuse with the 0.08s CSS width transition, which
+   only smooths per-frame jumps.)
+   ------------------------------------------------------------------------- */
+const POLL_ANIM_MS = 60000; // duration of the vote-fill animation in milliseconds; increase to slow it down
+
+/* -------------------------------------------------------------------------
+   PER-PAGE PERSISTENCE KEYS (schema version ".v1"; bump if the saved SHAPE
+   changes so old blobs are ignored cleanly).
+     - PAGE1_KEY: the EXISTING key — MUST stay "voteApp.state.v1" so a user's
+       current page-1 setup is preserved after this update.
+     - PAGE2_KEY: a NEW, separate key for page 2 so the two pages never clobber
+       each other's data.
+     - ACTIVE_PAGE_KEY: which tab ("page1"/"page2") is currently active.
+   ------------------------------------------------------------------------- */
+const PAGE1_KEY = "voteApp.state.v1";
+const PAGE2_KEY = "voteApp.page2.v1";
+const ACTIVE_PAGE_KEY = "voteApp.activePage.v1";
+
+/* -------------------------------------------------------------------------
+   RANDOMNESS -> TEMPERATURE (T) MAPPING constants (shared by both pages).
+   ------------------------------------------------------------------------- */
+const T_MIN = 0.3;    // near-deterministic end
+const T_MAX = 20;    // near-uniform end
+
+/* -------------------------------------------------------------------------
+   SEED DEFAULTS.
+   PAGE 1 (favor-low): the ORIGINAL 6 options + weights, UNCHANGED, so scores
+   stay 9, 15, 10, 11.5, 15, 10.5 and existing saved data lines up.
+   PAGE 2 (favor-high): a few (3) example options in the SAME format to
+   demonstrate the layout; the user grows the list with "Add option".
+   Each seed also carries `optionSeq` — the running counter behind the
+   "Option N" default names so newly-added options keep counting up.
+   Frozen so the baselines are never mutated in place; callers deep-clone via
+   cloneSeed().
+   ------------------------------------------------------------------------- */
+const SEED_PAGE1 = Object.freeze({
+  weights: { metric_a: 1.0, metric_b: 2.0, metric_c: -0.5 },
+  options: [
+    // `excluded` (Immune feature, PAGE 1 only): false by default so "Reset to
+    // defaults" clears any immunity. sanitizeState also defaults it to false.
+    { name: "Option 1", metrics: { metric_a: 5, metric_b: 3, metric_c: 4 }, image: "", excluded: false },
+    { name: "Option 2", metrics: { metric_a: 2, metric_b: 8, metric_c: 6 }, image: "", excluded: false },
+    { name: "Option 3", metrics: { metric_a: 9, metric_b: 1, metric_c: 2 }, image: "", excluded: false },
+    { name: "Option 4", metrics: { metric_a: 4, metric_b: 5, metric_c: 5 }, image: "", excluded: false },
+    { name: "Option 5", metrics: { metric_a: 7, metric_b: 6, metric_c: 8 }, image: "", excluded: false },
+    { name: "Option 6", metrics: { metric_a: 3, metric_b: 4, metric_c: 1 }, image: "", excluded: false },
+  ],
+  randomness: 30,
+  pickCount: 1,
+  voters: 100,
+  optionSeq: 6, // highest "Option N" number seeded; add-option counts up from here
+});
+
+const SEED_PAGE2 = Object.freeze({
+  weights: { metric_a: 1.0, metric_b: 2.0, metric_c: -0.5 },
+  options: [
+    { name: "Option 1", metrics: { metric_a: 5, metric_b: 3, metric_c: 4 }, image: "" },
+    { name: "Option 2", metrics: { metric_a: 2, metric_b: 8, metric_c: 6 }, image: "" },
+    { name: "Option 3", metrics: { metric_a: 9, metric_b: 1, metric_c: 2 }, image: "" },
+  ],
+  randomness: 30,
+  pickCount: 1,
+  voters: 100,
+  optionSeq: 3, // 3 example options seeded; add-option counts up from here
+});
+
+/* =========================================================================
+   SHARED PURE HELPERS (no per-page state; safe at module scope).
+   ========================================================================= */
+
+// Deep clone a (frozen) seed so live edits never touch the baseline.
+function cloneSeed(seed) {
+  return JSON.parse(JSON.stringify(seed));
+}
+
+/* Robust number parse: blank / non-numeric -> 0 (never crash). */
+function num(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmt(n) {
+  // 2-decimal display for scores, matching the CLI.
+  return n.toFixed(2);
+}
+function fmtPct(p) {
+  return (p * 100).toFixed(1) + "%";
+}
+
+// Minimal HTML escaping for names shown in the summary.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+/* -------------------------------------------------------------------------
+   RANDOMNESS -> TEMPERATURE (T) MAPPING.
+   The slider is 0..100, mapped to a temperature T on an EXPONENTIAL scale:
+       T = T_MIN * (T_MAX / T_MIN) ^ (slider / 100)
+   - slider = 0   -> T = T_MIN: the softmax collapses onto the favored end
+                     => near-deterministic pick.
+   - slider = 100 -> T = T_MAX: exponents ~ 0 for everyone, so probabilities
+                     flatten toward UNIFORM (coin-flip) on BOTH pages.
+   T is always > 0 here, but computeProbabilities still clamps to guard
+   against any T=0 division. (Mapping is UNCHANGED from the original.)
+   ------------------------------------------------------------------------- */
+// function sliderToT(sliderValue) {
+//   const s = Math.min(100, Math.max(0, num(sliderValue)));
+//   return T_MIN * Math.pow(T_MAX / T_MIN, s / 100);
+// }
+// ✅ FIX: Swaps exponential math for a linear scale so randomness feels responsive immediately
+// ✅ Clean linear scaling so moving the slider away from 0 instantly opens up the race
+function sliderToT(sliderValue) {
+  const s = Math.min(100, Math.max(0, num(sliderValue)));
+  // ✅ Clean linear map across your narrow temperature span
+  return T_MIN + (s / 100) * (T_MAX - T_MIN); 
+}
+
+
+
+
+
+/* -------------------------------------------------------------------------
+   SOFTMAX PROBABILITY OF BEING PICKED — with a DIRECTION sign.
+   The page factory passes `sign`:
+     - sign = -1  (favorLow, PAGE 1, EXISTING behavior):
+           p_i = exp(-score_i / T) / sum   => HIGHER score = LOWER chance.
+     - sign = +1  (favorHigh, PAGE 2, OPPOSITE behavior):
+           p_i = exp(+score_i / T) / sum   => HIGHER score = HIGHER chance.
+   Same log-sum-exp numerical-stability trick either way: subtract the max
+   exponent before exp() so large magnitudes never overflow to Infinity.
+   Because the exponent is score*sign/T, a large T flattens BOTH directions
+   toward uniform. Returns probabilities that sum to ~1.
+   ------------------------------------------------------------------------- */
+function computeProbabilities(scores, T, sign) {
+  const t = Math.max(num(T), 1e-6);        // clamp: never divide by zero
+  const exponents = scores.map((s) => (sign * s) / t); // sign flips the direction
+  const maxE = Math.max(...exponents);     // shift for numerical stability
+  const exps = exponents.map((x) => Math.exp(x - maxE));
+  const total = exps.reduce((a, b) => a + b, 0);
+  // total > 0 always (at least one exp === 1 after the shift).
+  return exps.map((e) => e / total);
+}
+
+/* -------------------------------------------------------------------------
+   SUBSET-SOFTMAX RENORMALIZATION (Immune / exclude-from-selection feature).
+   Used ONLY by the favor-low page (cfg.allowExclude === true). Given the
+   per-option scores + the direction `sign`, compute pick probabilities BUT
+   treat any option whose excluded[i] === true as permanently unpickable
+   (probability exactly 0). The softmax is computed ONLY over the NON-excluded
+   options via the UNCHANGED computeProbabilities() above, then scattered back
+   to the original positions so the non-excluded probabilities still sum to
+   ~1 (100%) and every excluded slot is 0. This does NOT alter the sign or
+   temperature math — it only restricts the normalization set.
+   Edge cases:
+     - ALL options excluded    -> every probability is 0 (caller guards
+                                  Draw / Simulate as a safe no-op).
+     - exactly ONE non-excluded -> that lone option gets 1.0 (100%).
+   Returns a full-length array aligned to `scores` (0 for excluded options).
+   ------------------------------------------------------------------------- */
+function computeProbabilitiesExcluding(scores, T, sign, excluded) {
+  const probs = new Array(scores.length).fill(0);
+  // Collect only the NON-excluded (available) indices + their scores.
+  const availIdx = [];
+  const availScores = [];
+  for (let i = 0; i < scores.length; i++) {
+    if (!excluded[i]) { availIdx.push(i); availScores.push(scores[i]); }
+  }
+  if (availIdx.length === 0) return probs; // all immune -> all-zero distribution
+  // Softmax over the subset only (unchanged math), then scatter back.
+  const subProbs = computeProbabilities(availScores, T, sign);
+  for (let k = 0; k < availIdx.length; k++) {
+    probs[availIdx[k]] = subProbs[k];
+  }
+  return probs;
+}
+
+/* -------------------------------------------------------------------------
+   WEIGHTED RANDOM DRAW (single pick from a distribution).
+   Build the cumulative distribution and pick the first bucket whose
+   cumulative sum exceeds a single Math.random() roll. (UNCHANGED.)
+   ------------------------------------------------------------------------- */
+function weightedDraw(probs) {
+  const r = Math.random();
+  let acc = 0;
+  for (let i = 0; i < probs.length; i++) {
+    acc += probs[i];
+    if (r < acc) return i;
+  }
+  return probs.length - 1; // floating-point fallback
+}
+
+/* -------------------------------------------------------------------------
+   TOP-N WINNER SELECTION with a DETERMINISTIC tie-break (UNCHANGED).
+   Return the indices of the `n` options with the MOST votes; ties break
+   toward the EARLIEST option index (secondary ascending sort).
+   ------------------------------------------------------------------------- */
+function topNByVotes(counts, n) {
+  const order = counts.map((c, i) => [i, c]);
+  order.sort((a, b) => (b[1] - a[1]) || (a[0] - b[0]));
+  return order.slice(0, Math.min(n, order.length)).map((pair) => pair[0]);
+}
+
+/* -------------------------------------------------------------------------
+   WEIGHTED RANDOM SAMPLING WITHOUT REPLACEMENT (Feature 2, UNCHANGED).
+   Select `n` DISTINCT indices using the current probabilities, renormalizing
+   over the remaining candidates after each pick (implicitly, by rolling
+   against the remaining sum). Returns chosen original indices in draw order.
+   ------------------------------------------------------------------------- */
+function weightedSampleWithoutReplacement(probs, n) {
+  const idxs = probs.map((_, i) => i); // remaining original indices
+  const p = probs.slice();             // remaining (un-normalized) weights
+  const chosen = [];
+  const count = Math.min(n, idxs.length);
+  for (let k = 0; k < count; k++) {
+    const total = p.reduce((a, b) => a + b, 0);
+    const r = Math.random() * total;
+    let acc = 0;
+    let pick = p.length - 1; // floating-point fallback
+    for (let i = 0; i < p.length; i++) {
+      acc += p[i];
+      if (r < acc) { pick = i; break; }
+    }
+    chosen.push(idxs[pick]);
+    idxs.splice(pick, 1);
+    p.splice(pick, 1);
+  }
+  return chosen;
+}
+
+/* -------------------------------------------------------------------------
+   CANVAS IMAGE DOWNSCALING (Feature 1, UNCHANGED).
+   Read a user-selected image file, downscale via off-screen <canvas> to a
+   ~200px thumbnail, and export a compressed data URL (JPEG q0.8, or PNG if
+   the image has transparency). cb(dataUrl) on success, cb(null) on failure.
+   ------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------
+   CANVAS IMAGE DOWNSCALING (Feature 1 - FIXED FOR GIF ANIMATION).
+   Read a user-selected image file, downscale via off-screen <canvas> to a
+   ~200px thumbnail, and export a compressed data URL (JPEG q0.8, or PNG if
+   the image has transparency). 
+   ------------------------------------------------------------------------- */
+function fileToThumbDataUrl(file, cb) {
+  // ✅ FIX: If the user uploads a GIF, bypass the canvas entirely!
+  // This keeps all frames intact so the animation plays.
+  if (file && file.type === "image/gif") {
+    const reader = new FileReader();
+    reader.onload = function () {
+      cb(reader.result); // Pass the raw animated base64 data URL straight back
+    };
+    reader.onerror = function () { cb(null); };
+    reader.readAsDataURL(file);
+    return; // Exit early so it doesn't hit the canvas code below
+  }
+
+  // --- Leave the rest of your original canvas downscaling code below exactly as it is ---
+  const MAX = 200; // max thumbnail dimension in px
+  const reader = new FileReader();
+  reader.onload = function () {
+    const img = new Image();
+    img.onload = function () {
+      let w = img.naturalWidth || img.width;
+      let h = img.naturalHeight || img.height;
+      if (!w || !h) { cb(null); return; }
+      if (w > h) {
+        if (w > MAX) { h = Math.round((h * MAX) / w); w = MAX; }
+      } else {
+        if (h > MAX) { w = Math.round((w * MAX) / h); h = MAX; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      let hasAlpha = false;
+      try {
+        const data = ctx.getImageData(0, 0, w, h).data;
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] < 255) { hasAlpha = true; break; }
+        }
+      } catch (e) {
+        hasAlpha = false; // getImageData can throw in odd cases; assume opaque
+      }
+      let dataUrl;
+      try {
+        dataUrl = hasAlpha
+          ? canvas.toDataURL("image/png")
+          : canvas.toDataURL("image/jpeg", 0.8);
+      } catch (e) {
+        dataUrl = null;
+      }
+      cb(dataUrl);
+    };
+    img.onerror = function () { cb(null); };
+    img.src = reader.result;
+  };
+  reader.onerror = function () { cb(null); };
+  reader.readAsDataURL(file);
+}
+
+
+/* -------------------------------------------------------------------------
+   "How to use" guidance builder. Reproduces the ORIGINAL guidance text and
+   swaps in the DIRECTION-specific phrases (cfg.rule*) so each page states its
+   own rule. Also documents the two pages and Add/Remove options.
+   ------------------------------------------------------------------------- */
+function buildHowtoHtml(cfg) {
+  return (
+    '<strong>How to use:</strong> Open this file in any browser (double-click it — no server needed). ' +
+    'Use the <strong>tabs</strong> at the top to switch between <strong>Best avoid being picked</strong> ' +
+    '(higher stats = lower chance) and <strong>Best get picked</strong> (higher stats = higher chance); ' +
+    'each page has its own options and its own saved setup. ' +
+    "Edit each option's <strong>name</strong>, its <strong>metric values</strong>, and the shared " +
+    '<strong>weights</strong>. Score = sum of (weight × metric value). ' + cfg.ruleHtml + ' ' +
+    'The <strong>% chance</strong> column and inline bars update live. The <strong>randomness slider</strong> ' +
+    'controls how strongly stats matter versus pure luck: turn it down for ' + cfg.deterministicPhrase +
+    ', turn it up to flatten every option toward an equal coin-flip. Click <strong>Draw</strong> to run an ' +
+    'actual weighted random pick — ' + cfg.drawHighlight + '. A negative weight means "lower is better" for ' +
+    "that metric's contribution to the score. Blank / non-numeric entries count as 0. " +
+    'Use <strong>Add option</strong> to append a new option (named "Option N", metrics default to 0, no image), ' +
+    'and the per-row <strong>Remove</strong> button to delete one (you must keep at least one). ' +
+    (cfg.immuneHtml ? cfg.immuneHtml + ' ' : '') +
+    'The <strong>Number to pick</strong> maximum tracks the current option count. ' +
+    'You can also <strong>add an image per option</strong> — either <strong>upload a file</strong> ' +
+    "(it's stored as a small downscaled thumbnail on this device) or <strong>paste an image URL</strong>; " +
+    'note that images loaded from an external URL require a network connection to display (unlike the ' +
+    'otherwise fully-offline app). Use <strong>Number to pick</strong> to draw <strong>more than one</strong> ' +
+    'distinct option at once (' + cfg.perPickPhrase + '). Click <strong>Simulate voting</strong> to run a live ' +
+    '<strong>poll</strong>: it casts the chosen <strong>number of voters</strong>\' votes, where <strong>each ' +
+    'voter picks an option at random using that option\'s current % chance</strong>, and the per-option ' +
+    '<strong>poll meters</strong> (the cyan "Votes (poll)" column) fill up as the votes come in. When the poll ' +
+    'finishes, the <strong>most-voted</strong> option is highlighted as the pick (or the <strong>top-N</strong> ' +
+    'if <strong>Number to pick</strong> is greater than 1), while <strong>Draw</strong> still does a single ' +
+    'instant weighted pick. <strong>Your edits auto-save in this browser on this device</strong>, so they ' +
+    'survive a reload or reopen; click <strong>Reset to defaults</strong> to wipe this page\'s saved setup and ' +
+    'restore its original seed values.'
+  );
+}
+
+/* -------------------------------------------------------------------------
+   Build the inner markup for ONE page instance. Uses data-role attributes
+   for scoped querying and a per-page id prefix for the label/for pairs so
+   the two instances never share DOM ids.
+   ------------------------------------------------------------------------- */
+function pageMarkup(cfg) {
+  const p = cfg.idPrefix;
+  return '' +
+  //'<div class="howto">' + buildHowtoHtml(cfg) + '</div>' +
+  '<div class="weights-panel" data-role="weightsPanel">' +
+    '<h2>Metric weights</h2>' +
+  '</div>' +
+  '<div class="randomness-panel">' +
+    '<h2>Randomness</h2>' +
+    '<div class="slider-row">' +
+      '<input type="range" data-role="randomness" id="' + p + 'randomness" min="0" max="100" step="1" value="30" ' +
+             'aria-label="' + cfg.sliderAria + '" />' +
+      '<span class="readout" data-role="randReadout"></span>' +
+      '<div class="pick-field">' +
+        '<label for="' + p + 'pickCount">Number to pick</label>' +
+        '<input type="number" data-role="pickCount" id="' + p + 'pickCount" min="1" max="6" step="1" value="1" ' +
+               'aria-label="Number of options to pick" />' +
+      '</div>' +
+      '<div class="pick-field">' +
+        '<label for="' + p + 'voters">Voters</label>' +
+        '<input type="number" data-role="voters" id="' + p + 'voters" min="1" max="100000" step="1" value="100" ' +
+               'aria-label="Number of voters to simulate" />' +
+      '</div>' +
+      '<button type="button" class="draw-btn" data-role="drawBtn">Draw — pick one</button>' +
+      '<button type="button" class="draw-btn sim-btn" data-role="simBtn">Begin Voting</button>' +
+      // Reverse-poll button — rendered ONLY when cfg.allowReversePoll (page 1).
+      // Runs the poll with the probability direction FLIPPED to favor-high.
+      // Own p1-prefixed id + clear aria-label; page 2 never gets this button.
+      (cfg.allowReversePoll
+        ? '<button type="button" class="draw-btn sim-btn" data-role="simReverseBtn" id="' + p + 'simReverseBtn" ' +
+          'aria-label="Simulate voting with reversed odds so higher scores are more likely to be picked">' +
+          'Saftey Vote</button>'
+        : '') +
+      '<button type="button" class="add-btn" data-role="addBtn">Add option</button>' +
+      '<button type="button" class="reset-btn" data-role="resetBtn">Reset to defaults</button>' +
+    '</div>' +
+    '<div class="slider-ends" aria-hidden="true">' +
+      '<span>' + cfg.sliderEndLeft + '</span>' +
+      '<span>Pure random (coin-flip)</span>' +
+    '</div>' +
+  '</div>' +
+  '<table data-role="voteTable">' +
+    '<caption>' + cfg.caption + '</caption>' +
+    '<thead>' +
+      '<tr data-role="headRow">' +
+        '<th scope="col">Option</th>' +
+        '<th scope="col" class="num" data-role="scoreHead">Score</th>' +
+        '<th scope="col" class="num">Chance</th>' +
+        '<th scope="col" class="num">Votes (poll)</th>' +
+        '<th scope="col"><span class="visually-hidden">Actions</span></th>' +
+      '</tr>' +
+    '</thead>' +
+    '<tbody data-role="tableBody"></tbody>' +
+  '</table>' +
+  '<div class="summary" data-role="summary" aria-live="polite"></div>';
+}
+
+/* =========================================================================
+   PAGE FACTORY.
+   createPage(config) builds ONE fully-independent picker instance into
+   config.root. Each instance owns its DOM, its closure state, its
+   localStorage key, and its poll results. The ONLY behavioral difference
+   between instances is config.sign (the softmax DIRECTION):
+     - sign = -1 -> favorLow  ("Best avoid being picked")
+     - sign = +1 -> favorHigh ("Best get picked")
+   Everything else (scoring, T mapping, images, Draw, multi-pick, Simulate
+   voting + POLL_ANIM_MS meters, top-N tie-break, add/remove, Reset,
+   persistence) is identical across instances.
+   config = { root, idPrefix, storageKey, seed, sign, ...label strings }
+   ========================================================================= */
+function createPage(cfg) {
+  const root = cfg.root;
+  const sign = cfg.sign;             // DIRECTION: -1 favorLow, +1 favorHigh
+  const storageKey = cfg.storageKey; // per-page localStorage key
+  const seed = cfg.seed;             // per-page seed defaults
+  // ALLOW-EXCLUDE (Immune feature) flag: TRUE only for the favor-low page
+  // (page 1). When true, each row gets an "Immune" toggle and immune options
+  // are excluded from the softmax, Draw, and the poll. FALSE for page 2, which
+  // therefore keeps its ORIGINAL behavior with no Immune button. Declared here
+  // (before loadState/sanitizeState run) to stay temporal-dead-zone safe.
+  const allowExclude = cfg.allowExclude === true;
+  // ALLOW-REVERSE-POLL flag: TRUE only for the favor-low page (page 1). When
+  // true, an extra "Simulate voting (reverse)" button is rendered next to the
+  // normal "Simulate voting" button; it runs the SAME poll but with the
+  // probability direction FLIPPED (favor-high, like page 2) while reusing the
+  // exact same exclusion + sampling + animation logic. FALSE for page 2, which
+  // therefore keeps its ORIGINAL single-button behavior. Declared here (before
+  // loadState/sanitizeState run) to stay temporal-dead-zone safe.
+  const allowReversePoll = cfg.allowReversePoll === true;
+
+  // Render the page's markup, then grab scoped element references.
+  root.innerHTML = pageMarkup(cfg);
+  const els = {
+    weightsPanel: root.querySelector('[data-role="weightsPanel"]'),
+    randomness:   root.querySelector('[data-role="randomness"]'),
+    randReadout:  root.querySelector('[data-role="randReadout"]'),
+    pickCount:    root.querySelector('[data-role="pickCount"]'),
+    voters:       root.querySelector('[data-role="voters"]'),
+    drawBtn:      root.querySelector('[data-role="drawBtn"]'),
+    simBtn:       root.querySelector('[data-role="simBtn"]'),
+    // Reverse-poll button: present ONLY on page 1 (allowReversePoll); null on page 2.
+    simReverseBtn: root.querySelector('[data-role="simReverseBtn"]'),
+    addBtn:       root.querySelector('[data-role="addBtn"]'),
+    resetBtn:     root.querySelector('[data-role="resetBtn"]'),
+    headRow:      root.querySelector('[data-role="headRow"]'),
+    tableBody:    root.querySelector('[data-role="tableBody"]'),
+    summary:      root.querySelector('[data-role="summary"]'),
+  };
+
+  /* ---- Per-page persistence (parameterized by storageKey + seed) ---- */
+
+  // Snapshot the current live state for saving. Options carry their `image`
+  // data-URL (if any) automatically. `optionSeq` persists the "Option N"
+  // counter so added names keep counting across reloads.
+  function getState() {
+    return {
+      weights: weights,
+      options: options,
+      randomness: num(els.randomness.value),
+      pickCount: clampPickCount(pickCount),
+      voters: clampVoters(voters),
+      optionSeq: optionSeq,
+    };
+  }
+
+  // SAVE: serialize to localStorage under this page's key. Best-effort; a
+  // quota error (e.g. an image too large after downscaling) is surfaced.
+  function saveState() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(getState()));
+    } catch (e) {
+      const quota =
+        e && (e.name === "QuotaExceededError" ||
+              e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+              e.code === 22 || e.code === 1014);
+      if (quota) {
+        alert("Image too large to save — try a smaller image.");
+      }
+      /* otherwise storage unavailable/full — persistence is best-effort */
+    }
+  }
+
+  // LOAD: read + parse this page's saved state; null if missing/corrupt.
+  function loadState() {
+    let raw;
+    try {
+      raw = localStorage.getItem(storageKey);
+    } catch (e) {
+      return null;
+    }
+    if (!raw) return null;
+    try {
+      return sanitizeState(JSON.parse(raw));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* SANITIZE: validate + coerce a parsed blob into a safe state object.
+     Handles a VARIABLE-LENGTH options array (add/remove options) and the
+     optional per-option image string. Starts from a fresh seed clone and
+     overlays only recognized, well-typed fields. Returns null only when the
+     input is not a usable object. */
+  function sanitizeState(parsed) {
+    if (!parsed || typeof parsed !== "object") return null;
+    const base = cloneSeed(seed);
+
+    // Weights: copy only known metric keys, coerced to numbers.
+    if (parsed.weights && typeof parsed.weights === "object") {
+      METRIC_KEYS.forEach((k) => {
+        if (k in parsed.weights) base.weights[k] = num(parsed.weights[k]);
+      });
+    }
+
+    // Options: a variable-length array. Rebuild from parsed (not capped to
+    // the seed length) so added/removed options round-trip. Each option is
+    // coerced to {name, metrics:{...}, image}. If nothing usable is present,
+    // the seed options are kept.
+    if (Array.isArray(parsed.options) && parsed.options.length > 0) {
+      const opts = [];
+      parsed.options.forEach((o) => {
+        if (!o || typeof o !== "object") return;
+        const opt = { name: "Option", metrics: {}, image: "" };
+        if (typeof o.name === "string") opt.name = o.name;
+        METRIC_KEYS.forEach((k) => {
+          opt.metrics[k] = (o.metrics && typeof o.metrics === "object" && k in o.metrics)
+            ? num(o.metrics[k]) : 0;
+        });
+        // Optional image thumbnail: accept ONLY a string (data URL / URL).
+        if (typeof o.image === "string") opt.image = o.image;
+        // Optional immunity flag (Immune feature). PAGE 1 (allowExclude) only:
+        // accept an optional boolean `excluded`, defaulting to false when the
+        // field is absent (schema evolution: old saved blobs lack it). Page 2
+        // never sets this, so its options stay in their original shape.
+        if (allowExclude) opt.excluded = (o.excluded === true);
+        opts.push(opt);
+      });
+      if (opts.length > 0) base.options = opts;
+    }
+
+    // Randomness: clamp to the slider's 0..100 range.
+    if ("randomness" in parsed) {
+      base.randomness = Math.min(100, Math.max(0, num(parsed.randomness)));
+    }
+
+    // Pick count: clamp to [1, numOptions] (integer).
+    if ("pickCount" in parsed) {
+      base.pickCount = Math.min(
+        base.options.length,
+        Math.max(1, Math.round(num(parsed.pickCount)))
+      );
+    }
+
+    // Voters: clamp to [1, VOTERS_MAX] (integer).
+    if ("voters" in parsed) {
+      base.voters = Math.min(VOTERS_MAX, Math.max(1, Math.round(num(parsed.voters))));
+    }
+
+    // Option counter: never below the current option count so new "Option N"
+    // names can't collide with existing ones.
+    if ("optionSeq" in parsed) {
+      base.optionSeq = Math.max(base.options.length, Math.round(num(parsed.optionSeq)));
+    } else {
+      base.optionSeq = base.options.length;
+    }
+
+    return base;
+  }
+
+  /* ---- LIVE STATE (restored from storage if present/valid, else seed) ---- */
+  const initialState = loadState() || cloneSeed(seed);
+  let weights = initialState.weights;   // editable weights (per metric key)
+  let options = initialState.options;   // dynamic option list (names/metrics/images)
+  let pickCount = initialState.pickCount;
+  let voters = initialState.voters;
+  let optionSeq = initialState.optionSeq; // running "Option N" counter
+  let pickedIndices = [];               // most-recent draw/poll winners (draw order)
+
+  // Poll simulation run state (transient — NOT persisted).
+  let pollCounts = null;
+  let pollTotal = 0;
+  let resultMode = "none"; // "none" | "draw" | "poll"
+  // Whether the most-recent poll run used the FLIPPED (reverse/favor-high)
+  // direction. Purely for the summary note; does not affect the normal run.
+  let pollReverse = false;
+  let simRunning = false;
+  let rafId = 0;
+
+  /* ---- SCORING (identical to vote_app.py's score()) ----
+     score(option) = sum over metrics of weight[metric] * option.metrics[metric] */
+  function score(option) {
+    return METRIC_KEYS.reduce(
+      (sum, key) => sum + num(weights[key]) * num(option.metrics[key]),
+      0
+    );
+  }
+
+  /* CLAMP pick count into [1, numOptions] — the max tracks the CURRENT
+     option count, so it re-clamps whenever options are added/removed. */
+  function clampPickCount(v) {
+    return Math.min(options.length, Math.max(1, Math.round(num(v))));
+  }
+
+  /* CLAMP voter count into [1, VOTERS_MAX] (integer). */
+  function clampVoters(v) {
+    return Math.min(VOTERS_MAX, Math.max(1, Math.round(num(v))));
+  }
+
+  /* Keep the "Number to pick" input's max attribute in sync with the current
+     option count, and re-clamp its displayed value. Called after add/remove. */
+  function syncPickCountBounds() {
+    els.pickCount.max = String(options.length);
+    pickCount = clampPickCount(pickCount);
+    els.pickCount.value = String(pickCount);
+  }
+
+  // ---- Build the editable weights panel ----
+  function buildWeights() {
+    const panel = els.weightsPanel;
+    panel.querySelectorAll(".field").forEach((el) => el.remove());
+    METRIC_KEYS.forEach((key) => {
+      const field = document.createElement("div");
+      field.className = "field";
+      const label = document.createElement("label");
+      label.textContent = key + " weight";
+      label.setAttribute("for", cfg.idPrefix + "w_" + key);
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.id = cfg.idPrefix + "w_" + key;
+      input.value = weights[key];
+      input.setAttribute("aria-label", "Weight for " + key);
+      input.addEventListener("input", () => {
+        weights[key] = num(input.value);
+        recompute();
+      });
+      field.appendChild(label);
+      field.appendChild(input);
+      panel.appendChild(field);
+    });
+  }
+
+  // ---- Build metric column headers (once) ----
+  function buildHeaders() {
+    const headRow = els.headRow;
+    const scoreTh = headRow.querySelector('[data-role="scoreHead"]');
+    METRIC_KEYS.forEach((key) => {
+      const th = document.createElement("th");
+      th.scope = "col";
+      th.className = "num";
+      th.textContent = key;
+      headRow.insertBefore(th, scoreTh);
+    });
+  }
+
+  // ---- Build one editable row per option (re-run on any structural change) ----
+  function buildRows() {
+    const body = els.tableBody;
+    body.innerHTML = "";
+    options.forEach((opt, idx) => {
+      const tr = document.createElement("tr");
+      tr.dataset.idx = idx;
+
+      // Name cell — holds the thumbnail + upload/URL/remove-image controls.
+      const nameTd = document.createElement("td");
+      const cell = document.createElement("div");
+      cell.className = "opt-cell";
+
+      const thumbWrap = document.createElement("span");
+      thumbWrap.dataset.role = "thumbWrap";
+
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.value = opt.name;
+      nameInput.setAttribute("aria-label", "Name for option " + (idx + 1));
+      nameInput.addEventListener("input", () => {
+        opt.name = nameInput.value;
+        recompute();
+      });
+
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.setAttribute("aria-label", "Upload image for option " + (idx + 1));
+
+      // Image-CLEAR ("×") control — clears just the option's IMAGE (not the row).
+      const removeImgBtn = document.createElement("button");
+      removeImgBtn.type = "button";
+      removeImgBtn.className = "remove-img-btn";
+      removeImgBtn.textContent = "\u00d7"; // ×
+      removeImgBtn.title = "Remove image";
+      removeImgBtn.setAttribute("aria-label", "Remove image for option " + (idx + 1));
+
+      const urlInput = document.createElement("input");
+      urlInput.type = "url";
+      urlInput.placeholder = "or paste image URL";
+      urlInput.setAttribute("aria-label", "Image URL for option " + (idx + 1));
+      if (opt.image && opt.image.slice(0, 5) !== "data:") {
+        urlInput.value = opt.image;
+      }
+
+      function showPlaceholder() {
+        thumbWrap.innerHTML = "";
+        const ph = document.createElement("span");
+        ph.className = "thumb-placeholder";
+        ph.textContent = "no image";
+        ph.setAttribute("aria-hidden", "true");
+        thumbWrap.appendChild(ph);
+        removeImgBtn.hidden = true;
+      }
+
+      function renderThumb() {
+        thumbWrap.innerHTML = "";
+        if (opt.image) {
+          const img = document.createElement("img");
+          img.className = "thumb";
+          img.src = opt.image;
+          img.alt = "Image for " + (opt.name || "option " + (idx + 1));
+          // Graceful fallback: a broken / unreachable URL swaps back to the
+          // neutral placeholder instead of a broken-image icon.
+          img.onerror = function () { showPlaceholder(); };
+          thumbWrap.appendChild(img);
+          removeImgBtn.hidden = false;
+        } else {
+          showPlaceholder();
+        }
+      }
+
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        fileToThumbDataUrl(file, (dataUrl) => {
+          if (!dataUrl) {
+            alert("Could not read that image — please try a different file.");
+            return;
+          }
+          opt.image = dataUrl;
+          urlInput.value = "";
+          renderThumb();
+          saveState();
+        });
+        fileInput.value = "";
+      });
+
+      function applyUrl() {
+        const val = urlInput.value.trim();
+        if (val) {
+          opt.image = val;
+        } else if (opt.image.slice(0, 5) !== "data:") {
+          opt.image = "";
+        }
+        renderThumb();
+        saveState();
+      }
+      urlInput.addEventListener("input", applyUrl);
+      urlInput.addEventListener("change", applyUrl);
+
+      removeImgBtn.addEventListener("click", () => {
+        opt.image = "";
+        urlInput.value = "";
+        renderThumb();
+        saveState();
+      });
+
+      renderThumb();
+
+      const col = document.createElement("div");
+      col.className = "opt-col";
+      const controls = document.createElement("div");
+      controls.className = "img-controls";
+      controls.appendChild(fileInput);
+      controls.appendChild(urlInput);
+      controls.appendChild(removeImgBtn);
+      col.appendChild(nameInput);
+      col.appendChild(controls);
+
+      cell.appendChild(thumbWrap);
+      cell.appendChild(col);
+      nameTd.appendChild(cell);
+      tr.appendChild(nameTd);
+
+      // Editable metric value cells
+      METRIC_KEYS.forEach((key) => {
+        const td = document.createElement("td");
+        td.className = "num";
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "any";
+        input.value = opt.metrics[key];
+        input.setAttribute("aria-label", key + " value for " + opt.name);
+        input.addEventListener("input", () => {
+          opt.metrics[key] = num(input.value);
+          recompute();
+        });
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+
+      // Score cell (read-only, live-updated)
+      const scoreTd = document.createElement("td");
+      scoreTd.className = "num score-cell";
+      scoreTd.dataset.role = "score";
+      tr.appendChild(scoreTd);
+
+      // % chance cell: numeric readout + inline bar
+      const chanceTd = document.createElement("td");
+      chanceTd.className = "num chance-cell";
+      chanceTd.dataset.role = "chance";
+      const chanceNum = document.createElement("span");
+      chanceNum.className = "chance-num";
+      chanceNum.dataset.role = "chanceNum";
+      const track = document.createElement("span");
+      track.className = "bar-track";
+      const fill = document.createElement("span");
+      fill.className = "bar-fill";
+      fill.dataset.role = "chanceBar";
+      track.appendChild(fill);
+      chanceTd.appendChild(chanceNum);
+      chanceTd.appendChild(track);
+      tr.appendChild(chanceTd);
+
+      // Votes (poll) cell: numeric "count (pct%)" + animated poll meter
+      const votesTd = document.createElement("td");
+      votesTd.className = "num votes-cell";
+      votesTd.dataset.role = "votes";
+      const votesNum = document.createElement("span");
+      votesNum.className = "votes-num";
+      votesNum.dataset.role = "votesNum";
+      votesNum.textContent = "0";
+      const pollTrack = document.createElement("span");
+      pollTrack.className = "poll-track";
+      pollTrack.dataset.role = "pollTrack";
+      pollTrack.setAttribute("role", "progressbar");
+      pollTrack.setAttribute("aria-valuemin", "0");
+      pollTrack.setAttribute("aria-valuemax", "100");
+      pollTrack.setAttribute("aria-valuenow", "0");
+      pollTrack.setAttribute("aria-label", "Simulated votes for " + (opt.name || ("option " + (idx + 1))));
+      const pollFill = document.createElement("span");
+      pollFill.className = "poll-fill";
+      pollFill.dataset.role = "votesBar";
+      pollTrack.appendChild(pollFill);
+      votesTd.appendChild(votesNum);
+      votesTd.appendChild(pollTrack);
+      tr.appendChild(votesTd);
+
+      // Actions cell: per-row "Remove option" button (Feature: add/remove).
+      // Visually DISTINCT from the image-clear "×". Disabled when only one
+      // option remains (must keep >= 1).
+      const actionsTd = document.createElement("td");
+      actionsTd.className = "num";
+      const removeOptBtn = document.createElement("button");
+      removeOptBtn.type = "button";
+      removeOptBtn.className = "remove-opt-btn";
+      removeOptBtn.textContent = "Remove";
+      removeOptBtn.setAttribute("aria-label", "Remove option " + (idx + 1) + " (" + (opt.name || "") + ")");
+      if (options.length <= 1) {
+        removeOptBtn.disabled = true;
+        removeOptBtn.title = "Can't remove the last option";
+      }
+      removeOptBtn.addEventListener("click", () => removeOption(idx));
+      actionsTd.appendChild(removeOptBtn);
+
+      // Per-row "Immune" toggle — PAGE 1 only (cfg.allowExclude). Marks the
+      // option as excluded-from-selection. aria-pressed reflects on/off state;
+      // clicking flips option.excluded and re-renders + recomputes. NOT
+      // rendered on page 2, so page-2 rows are unchanged.
+      if (allowExclude) {
+        const immuneBtn = document.createElement("button");
+        immuneBtn.type = "button";
+        immuneBtn.className = "immune-btn";
+        immuneBtn.dataset.role = "immuneBtn";
+        immuneBtn.textContent = "Immune";
+        immuneBtn.setAttribute("aria-pressed", opt.excluded ? "true" : "false");
+        immuneBtn.setAttribute("aria-label",
+          "Toggle immunity for " + (opt.name || ("option " + (idx + 1))));
+        immuneBtn.addEventListener("click", () => toggleImmune(idx));
+        actionsTd.appendChild(immuneBtn);
+      }
+      tr.appendChild(actionsTd);
+
+      body.appendChild(tr);
+    });
+  }
+
+  /* ---- ADD OPTION: append a new option in the same format, then re-render.
+     Name = "Option N" (N keeps counting via optionSeq), metrics default 0,
+     no image. Clears any stale poll/draw result so counts stay consistent. */
+  function addOption() {
+    optionSeq += 1;
+    const metrics = {};
+    METRIC_KEYS.forEach((k) => { metrics[k] = 0; });
+    const newOpt = { name: "Option " + optionSeq, metrics: metrics, image: "" };
+    // New page-1 options start non-immune so they join the distribution.
+    if (allowExclude) newOpt.excluded = false;
+    options.push(newOpt);
+    // A structural change invalidates any prior poll/draw highlight.
+    pickedIndices = [];
+    pollCounts = null;
+    pollTotal = 0;
+    resultMode = "none";
+    buildRows();
+    syncPickCountBounds(); // Number-to-pick max now tracks the larger count
+    recompute();
+    saveState();
+  }
+
+  /* ---- REMOVE OPTION at idx: delete the row, re-render, re-clamp.
+     Guarded to keep >= 1 option. Clears any stale poll/draw result. */
+  function removeOption(idx) {
+    if (options.length <= 1) return; // never remove the last option
+    options.splice(idx, 1);
+    pickedIndices = [];
+    pollCounts = null;
+    pollTotal = 0;
+    resultMode = "none";
+    buildRows();
+    syncPickCountBounds(); // Number-to-pick max clamps down to the new count
+    recompute();
+    saveState();
+  }
+
+  /* ---- TOGGLE IMMUNE (Immune feature, PAGE 1 only): flip option.excluded.
+     An immune option is excluded from the softmax (0% chance), never drawn,
+     and gets 0 votes in the poll. Clears any stale draw/poll highlight (a
+     previously-picked option may now be immune) then recomputes + repaints.
+     recompute() persists the new flag via saveState(). ---- */
+  function toggleImmune(idx) {
+    const opt = options[idx];
+    opt.excluded = !opt.excluded;
+    pickedIndices = [];
+    pollCounts = null;
+    pollTotal = 0;
+    resultMode = "none";
+    recompute();
+  }
+
+  /* ---- Recompute scores + probabilities and repaint the table. ---- */
+    function recompute() {
+    const scores = options.map(score);
+    const T = sliderToT(els.randomness.value); // Ensure this line points back to sliderToT!
+
+    // DIRECTION comes from cfg.sign: favorLow (-1) or favorHigh (+1).
+    // PAGE 1 (allowExclude): immune options are dropped from the softmax
+    // normalization set (their probability is forced to 0 and the rest
+    // renormalize to sum to 100%). PAGE 2: the ORIGINAL full-set softmax.
+    const excludedFlags = allowExclude ? options.map((o) => !!o.excluded) : null;
+    const allExcluded = allowExclude && options.length > 0 && excludedFlags.every(Boolean);
+    const probs = allowExclude
+      ? computeProbabilitiesExcluding(scores, T, sign, excludedFlags)
+      : computeProbabilities(scores, T, sign);
+    const maxProb = Math.max(...probs); // for scaling the inline bars
+
+    const sliderVal = num(els.randomness.value);
+    els.randReadout.innerHTML =
+      "Randomness <strong>" + sliderVal + "%</strong> · T=" + T.toFixed(2);
+
+    const rows = els.tableBody.querySelectorAll("tr");
+    rows.forEach((tr) => {
+      const idx = Number(tr.dataset.idx);
+
+      const scoreCell = tr.querySelector('[data-role="score"]');
+      scoreCell.textContent = fmt(scores[idx]);
+
+      tr.querySelector('[data-role="chanceNum"]').textContent = fmtPct(probs[idx]);
+      const bar = tr.querySelector('[data-role="chanceBar"]');
+      bar.style.width = (maxProb > 0 ? (probs[idx] / maxProb) * 100 : 0) + "%";
+
+      const isPicked = pickedIndices.indexOf(idx) !== -1;
+      tr.classList.toggle("picked", isPicked);
+      const chanceCell = tr.querySelector('[data-role="chance"]');
+      const existingBadge = chanceCell.querySelector(".badge");
+      if (existingBadge) existingBadge.remove();
+      if (isPicked) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "PICKED";
+        chanceCell.appendChild(badge);
+      }
+
+      // ---- Immune (excluded) visual state — PAGE 1 only. Grey the row, sync
+      // the toggle's aria-pressed, and show a small "Immune" tag in place of
+      // the % bar (the numeric chance already reads 0.0%). ----
+      if (allowExclude) {
+        const isExcluded = !!options[idx].excluded;
+        tr.classList.toggle("immune", isExcluded);
+        const immuneBtn = tr.querySelector('[data-role="immuneBtn"]');
+        if (immuneBtn) immuneBtn.setAttribute("aria-pressed", isExcluded ? "true" : "false");
+        const existingTag = chanceCell.querySelector(".immune-tag");
+        if (existingTag) existingTag.remove();
+        const track = chanceCell.querySelector(".bar-track");
+        if (isExcluded) {
+          if (track) track.style.display = "none"; // hide the (empty) bar
+          const tag = document.createElement("span");
+          tag.className = "immune-tag";
+          tag.textContent = "Immune";
+          chanceCell.appendChild(tag);
+        } else if (track) {
+          track.style.display = ""; // restore the bar when un-immuned
+        }
+      }
+    });
+
+    renderVotes();
+
+    // Summary line. Poll mode reports poll winner(s); else the instant-Draw
+    // summary. `pickedWord` ("unlucky"/"winner") + `promptSuffix` come from cfg
+    // so each page states its own rule.
+    const summary = els.summary;
+    if (resultMode === "poll" && pollCounts && pickedIndices.length > 0) {
+      // Small optional note appended only when THIS poll was the reverse run.
+      const revNote = pollReverse ? " (reverse / favor-high poll)" : "";
+      if (pickedIndices.length === 1) {
+        const i = pickedIndices[0];
+        const pct = pollTotal > 0 ? (pollCounts[i] / pollTotal) * 100 : 0;
+        summary.innerHTML =
+          "Poll result: <strong>" + escapeHtml(options[i].name) +
+          "</strong> wins with " + pollCounts[i] + " votes (" + pct.toFixed(1) +
+          "%). Total votes: " + pollTotal + "." + revNote;
+      } else {
+        const parts = pickedIndices.map((i) => {
+          const pct = pollTotal > 0 ? (pollCounts[i] / pollTotal) * 100 : 0;
+          return escapeHtml(options[i].name) + " — " + pollCounts[i] +
+            " (" + pct.toFixed(1) + "%)";
+        });
+        summary.innerHTML = "Poll result — top " + pickedIndices.length +
+          ": <strong>" + parts.join(", ") + "</strong>. Total votes: " + pollTotal + "." + revNote;
+      }
+    } else if (pickedIndices.length === 1) {
+      const i = pickedIndices[0];
+      summary.innerHTML =
+        "Picked (" + cfg.pickedWord + "): <strong>" + escapeHtml(options[i].name) +
+        "</strong> — drawn at " + fmtPct(probs[i]) + " odds.";
+    } else if (pickedIndices.length > 1) {
+      const names = pickedIndices
+        .map((i) => escapeHtml(options[i].name))
+        .join(", ");
+      summary.innerHTML = "Picked (" + cfg.pickedWord + "): <strong>" + names + "</strong>";
+    } else {
+      // All-excluded guard: if every option is immune there is nothing to
+      // pick, so say so instead of prompting for a Draw.
+      if (allExcluded) {
+        summary.textContent = "All options are immune \u2014 nothing to pick.";
+      } else {
+        summary.textContent = "Click \u201cDraw\u201d to run a weighted random pick. " + cfg.promptSuffix;
+      }
+    }
+
+    saveState();
+  }
+
+  /* ---- DRAW: weighted random selection of `pickCount` DISTINCT options
+     against the CURRENT (direction-aware) probabilities. ---- */
+  function doDraw() {
+    const scores = options.map(score);
+    const T = sliderToT(els.randomness.value);
+
+    if (!allowExclude) {
+      // PAGE 2 — ORIGINAL path, unchanged.
+      const probs = computeProbabilities(scores, T, sign);
+      const n = clampPickCount(pickCount);
+      pollCounts = null;
+      pollTotal = 0;
+      resultMode = "draw";
+      pickedIndices = weightedSampleWithoutReplacement(probs, n);
+      recompute();
+      return;
+    }
+
+    // PAGE 1 — immune-aware Draw.
+    const excludedFlags = options.map((o) => !!o.excluded);
+    // All-immune guard: nothing is pickable -> safe no-op with a message.
+    if (excludedFlags.every(Boolean)) {
+      pickedIndices = [];
+      pollCounts = null;
+      pollTotal = 0;
+      resultMode = "none";
+      recompute();
+      els.summary.textContent = "All options are immune \u2014 nothing to pick.";
+      return;
+    }
+    const probs = computeProbabilitiesExcluding(scores, T, sign, excludedFlags);
+    // Restrict sampling to the AVAILABLE (non-excluded) options so an immune
+    // option can NEVER be selected (even via a floating-point fallback).
+    const availIdx = [];
+    const availProbs = [];
+    for (let i = 0; i < probs.length; i++) {
+      if (!excludedFlags[i]) { availIdx.push(i); availProbs.push(probs[i]); }
+    }
+    // Number-to-pick clamp: never try to pick more than the available options.
+    const n = Math.min(clampPickCount(pickCount), availIdx.length);
+    pollCounts = null;
+    pollTotal = 0;
+    resultMode = "draw";
+    const chosenLocal = weightedSampleWithoutReplacement(availProbs, n);
+    pickedIndices = chosenLocal.map((k) => availIdx[k]); // map back to originals
+    recompute();
+  }
+
+  /* ---- POLL-METER RENDERING (unchanged; scoped to this instance). ---- */
+  function renderVotes() {
+    const counts = pollCounts;
+    const maxV = counts ? Math.max(1, ...counts) : 1;
+    const rows = els.tableBody.querySelectorAll("tr");
+    rows.forEach((tr) => {
+      const idx = Number(tr.dataset.idx);
+      const numEl = tr.querySelector('[data-role="votesNum"]');
+      const bar = tr.querySelector('[data-role="votesBar"]');
+      const track = tr.querySelector('[data-role="pollTrack"]');
+      if (!counts) {
+        numEl.textContent = "0";
+        bar.style.width = "0%";
+        track.setAttribute("aria-valuenow", "0");
+        track.setAttribute("aria-label",
+          "Simulated votes for " + (options[idx].name || ("option " + (idx + 1))) + ": none yet");
+        return;
+      }
+      const c = counts[idx];
+      const pct = pollTotal > 0 ? (c / pollTotal) * 100 : 0;
+      numEl.textContent = c + " (" + pct.toFixed(1) + "%)";
+      
+      bar.style.width = pct + "%"; 
+      
+      track.setAttribute("aria-valuenow", String(Math.round(pct)));
+      track.setAttribute("aria-label",
+        "Simulated votes for " + (options[idx].name || ("option " + (idx + 1))) +
+        ": " + c + " (" + pct.toFixed(1) + "%)");
+    });
+  }
+
+  /* ---- SIMULATE VOTING (poll). Each voter picks per the CURRENT % chance,
+     meters fill over POLL_ANIM_MS, then top-N by votes (earliest-index
+     tie-break) are highlighted.
+
+     PARAMETERIZED DIRECTION: `reverse` selects which probability sign THIS run
+     uses, WITHOUT duplicating any logic:
+       - reverse === false (the existing "Simulate voting" button): use the
+         page's normal direction `sign` => page 1 stays favor-low (sign=-1),
+         so behavior is IDENTICAL to before.
+       - reverse === true  (the new page-1 "Simulate voting (reverse)" button):
+         use `-sign`, i.e. the OPPOSITE direction => favor-high (sign=+1), so a
+         higher score = higher chance, exactly like page 2's model.
+     Only the sign fed into the softmax differs; the immune/exclusion subset
+     logic, multinomial sampling, POLL_ANIM_MS animation, Number-to-pick top-N
+     selection, tie-break, and meter rendering are all reused UNCHANGED. ---- */
+  function doSimulate(reverse) {
+    if (simRunning) return;
+
+    // Direction for THIS run: flip the page's sign only when reverse is true.
+    const runSign = reverse ? -sign : sign;
+
+    // All-immune guard (PAGE 1): if every option is immune, there is nothing
+    // to vote for — safe no-op with a brief message (no animation started).
+    if (allowExclude && options.length > 0 && options.every((o) => o.excluded)) {
+      pickedIndices = [];
+      pollCounts = null;
+      pollTotal = 0;
+      resultMode = "none";
+      recompute();
+      els.summary.textContent = "All options are immune \u2014 nothing to pick.";
+      return;
+    }
+
+    simRunning = true;
+    pollReverse = reverse === true;
+    els.simBtn.disabled = true;
+    els.drawBtn.disabled = true;
+    // Keep BOTH simulate buttons locked during the animation (reverse button
+    // only exists on page 1). Re-enabled together on completion.
+    if (els.simReverseBtn) els.simReverseBtn.disabled = true;
+
+    pickedIndices = [];
+    pollCounts = new Array(options.length).fill(0);
+    pollTotal = 0;
+    resultMode = "poll";
+    recompute();
+    const voterCount = clampVoters(voters);
+    els.summary.innerHTML = `Election underway... Total Ballots Cast: <strong style="font-size: 1.2rem; color: var(--accent);">0</strong> / ${voterCount}`;
+
+
+    // const scores = options.map(score);
+    // const T = sliderToT(els.randomness.value);
+    // // PAGE 1 renormalizes over the non-excluded set; PAGE 2 uses the full set.
+    // // Reuse the SAME probability helpers — only runSign (the flipped-or-not
+    // // direction) differs between the normal and reverse runs.
+    // const excludedFlags = allowExclude ? options.map((o) => !!o.excluded) : null;
+    // const probs = allowExclude
+    //   ? computeProbabilitiesExcluding(scores, T, runSign, excludedFlags)
+    //   : computeProbabilities(scores, T, runSign);
+        const scores = options.map(score);
+    
+    // 🎲 Apply a one-time "Election Day Wild Card" based on the randomness slider
+    const chaosPercent = num(els.randomness.value) / 100;
+    const electionDayScores = scores.map(s => {
+      // Creates an unstable random swing of up to ±15 points per option for this specific run
+      const randomSwing = (Math.random() - 0.5) * chaosPercent * 30; 
+      return s + randomSwing;
+    });
+
+    const T = sliderToT(els.randomness.value);
+    const excludedFlags = allowExclude ? options.map((o) => !!o.excluded) : null;
+    
+    // ✅ FIX: Use the electionDayScores to build the vote stream instead of the default static scores
+    const probs = allowExclude 
+      ? computeProbabilitiesExcluding(electionDayScores, T, runSign, excludedFlags) 
+      : computeProbabilities(electionDayScores, T, runSign);
+
+
+
+    // Build the AVAILABLE subset so every vote lands on a non-excluded option;
+    // immune options therefore always end with exactly 0 votes. For PAGE 2
+    // (no exclusions) this is the identity mapping over all options.
+    const availIdx = [];
+    const availProbs = [];
+    for (let i = 0; i < probs.length; i++) {
+      if (!excludedFlags || !excludedFlags[i]) { availIdx.push(i); availProbs.push(probs[i]); }
+    }
+
+    const finalCounts = new Array(options.length).fill(0);
+    for (let v = 0; v < voterCount; v++) {
+      finalCounts[availIdx[weightedDraw(availProbs)]]++;
+    }
+
+    // Animation duration comes from the single POLL_ANIM_MS knob.
+    const DURATION = POLL_ANIM_MS;
+        // --- NEW LIVE-POLL ANIMATION LOGIC ---
+    let votesCast = 0;
+    const start = performance.now();
+
+    // Map out every single individual vote into an array, then shuffle it
+    // so the votes stream in completely randomly.
+    const voteStream = [];
+    for (let i = 0; i < finalCounts.length; i++) {
+      for (let j = 0; j < finalCounts[i]; j++) {
+        voteStream.push(i);
+      }
+    }
+    // Fisher-Yates Shuffle to mix up the order of incoming votes
+    for (let i = voteStream.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [voteStream[i], voteStream[j]] = [voteStream[j], voteStream[i]];
+    }
+
+    function frame(now) {
+      const elapsed = now - start;
+      let progress = elapsed / DURATION;
+      if (progress > 1) progress = 1;
+
+      // Apply a subtle ease-out so the vote stream starts fast and slows down at the end
+      const easedProgress = 1 - Math.pow(1 - progress, 2); 
+      
+      // Calculate how many total votes should be cast by this point in time
+      const targetVotesCast = Math.round(voterCount * easedProgress);
+
+      // Pour the votes into pollCounts until we catch up to the target frame count
+      while (votesCast < targetVotesCast && votesCast < voteStream.length) {
+        const optionIndex = voteStream[votesCast];
+        pollCounts[optionIndex]++;
+        votesCast++;
+      }
+
+      pollTotal = votesCast;
+      renderVotes();
+      
+      els.summary.innerHTML = `Election underway... Total Ballots Cast: <strong style="font-size: 1.2rem; color: var(--accent); font-variant-numeric: tabular-nums;">${votesCast.toLocaleString()}</strong> / ${voterCount.toLocaleString()}`;
+
+
+      if (progress < 1) {
+        rafId = requestAnimationFrame(frame);
+      } else {
+        pollCounts = finalCounts.slice(); 
+        pollTotal = voterCount;
+        
+        // ✅ FIX: This cleanly calculates the highest vote index directly from finalCounts
+        let maxVotesFound = -1;
+        let clearWinnerIdx = 0;
+        for (let i = 0; i < finalCounts.length; i++) {
+          if (finalCounts[i] > maxVotesFound) {
+            maxVotesFound = finalCounts[i];
+            clearWinnerIdx = i;
+          }
+        }
+        
+        // Assign the clean winner index so recompute() can instantly light it up red!
+        pickedIndices = [clearWinnerIdx];
+        
+        simRunning = false; 
+        els.simBtn.disabled = false; 
+        els.drawBtn.disabled = false;
+        if (els.simReverseBtn) els.simReverseBtn.disabled = false;
+        
+        // ✅ Wake up the table renderer to draw the background highlights instantly!
+        recompute(); 
+      }
+
+    }
+    rafId = requestAnimationFrame(frame);
+
+    // const start = performance.now();
+
+    // function frame(now) {
+    //   let t = (now - start) / DURATION;
+    //   if (t > 1) t = 1;
+    //   const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+
+    //   if (t < 1) {
+    //     let shown = 0;
+    //     for (let i = 0; i < finalCounts.length; i++) {
+    //       const c = Math.round(finalCounts[i] * eased);
+    //       pollCounts[i] = c;
+    //       shown += c;
+    //     }
+    //     pollTotal = shown;
+    //     renderVotes();
+    //     rafId = requestAnimationFrame(frame);
+    //   } else {
+    //     pollCounts = finalCounts.slice();
+    //     pollTotal = voterCount; // === sum(finalCounts)
+    //     // Top-N winners. PAGE 1: choose only among AVAILABLE options and clamp
+    //     // to the available count, so a 0-vote immune option is never a winner
+    //     // (the earliest-index tie-break is preserved within the subset). PAGE 2:
+    //     // original full-set top-N.
+    //     if (allowExclude) {
+    //       const nPick = Math.min(clampPickCount(pickCount), availIdx.length);
+    //       const availCounts = availIdx.map((i) => finalCounts[i]);
+    //       pickedIndices = topNByVotes(availCounts, nPick).map((k) => availIdx[k]);
+    //     } else {
+    //       pickedIndices = topNByVotes(finalCounts, clampPickCount(pickCount));
+    //     }
+    //     simRunning = false;
+    //     els.simBtn.disabled = false;
+    //     els.drawBtn.disabled = false;
+    //     if (els.simReverseBtn) els.simReverseBtn.disabled = false;
+    //     recompute();
+    //   }
+    // }
+    // rafId = requestAnimationFrame(frame);
+  }
+
+  /* ---- RESET TO DEFAULTS: wipe THIS page's saved state, restore its seed. ---- */
+  function doReset() {
+    if (!confirm(
+      "Reset all names, metrics, weights, and randomness to the original " +
+      "defaults for this page? This erases your saved edits in this browser."
+    )) {
+      return;
+    }
+    const s = cloneSeed(seed);
+    weights = s.weights;
+    options = s.options;
+    pickCount = s.pickCount;
+    optionSeq = s.optionSeq;
+    pickedIndices = [];
+    if (simRunning) {
+      cancelAnimationFrame(rafId);
+      simRunning = false;
+      els.simBtn.disabled = false;
+      els.drawBtn.disabled = false;
+      if (els.simReverseBtn) els.simReverseBtn.disabled = false;
+    }
+    pollCounts = null;
+    pollTotal = 0;
+    resultMode = "none";
+    voters = s.voters;
+    els.voters.value = s.voters;
+    els.randomness.value = s.randomness;
+    buildWeights();
+    buildRows();
+    syncPickCountBounds();
+    recompute();
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  /* ---- Init this instance ---- */
+  buildWeights();
+  buildHeaders();
+  buildRows();
+  els.randomness.value = initialState.randomness;
+
+  // "Number to pick": max = current option count; restore + persist.
+  els.pickCount.max = String(options.length);
+  pickCount = clampPickCount(initialState.pickCount);
+  els.pickCount.value = String(pickCount);
+  els.pickCount.addEventListener("input", () => {
+    pickCount = clampPickCount(els.pickCount.value);
+    saveState();
+  });
+  els.pickCount.addEventListener("change", () => {
+    pickCount = clampPickCount(els.pickCount.value);
+    els.pickCount.value = String(pickCount);
+    saveState();
+  });
+
+  // "Voters": restore + persist.
+  voters = clampVoters(initialState.voters);
+  els.voters.value = String(voters);
+  els.voters.addEventListener("input", () => {
+    voters = clampVoters(els.voters.value);
+    saveState();
+  });
+  els.voters.addEventListener("change", () => {
+    voters = clampVoters(els.voters.value);
+    els.voters.value = String(voters);
+    saveState();
+  });
+
+  els.randomness.addEventListener("input", recompute);
+  els.drawBtn.addEventListener("click", doDraw);
+  // Existing button: normal direction (page 1 = favor-low). UNCHANGED behavior.
+  els.simBtn.addEventListener("click", () => doSimulate(false));
+  // Reverse button (page 1 only): same poll with the sign flipped to favor-high.
+  if (els.simReverseBtn) els.simReverseBtn.addEventListener("click", () => doSimulate(true));
+  els.addBtn.addEventListener("click", addOption);
+  els.resetBtn.addEventListener("click", doReset);
+  recompute();
+
+  // Public handle (currently unused externally, but keeps the instance
+  // addressable for future needs).
+  return { root: root };
+}
+
+/* =========================================================================
+   INSTANTIATE THE TWO PAGES.
+   Page 1 (favorLow, sign=-1): EXISTING behavior, EXISTING key + seed.
+   Page 2 (favorHigh, sign=+1): OPPOSITE direction, NEW key + seed.
+   ========================================================================= */
+createPage({
+  root: document.getElementById("page1container"),
+  idPrefix: "p1_",
+  storageKey: PAGE1_KEY,
+  seed: SEED_PAGE1,
+  sign: -1, // favorLow: exp(-score/T) => higher score = LOWER chance
+  allowExclude: true, // PAGE 1 ONLY: enables the per-row "Immune" toggle
+  allowReversePoll: true, // PAGE 1 ONLY: adds the "Simulate voting (reverse)" (favor-high) button
+  pickedWord: "unlucky",
+  promptSuffix: "Higher stats = safer.",
+  caption: "Edit any cell to recompute the draw odds instantly; use \u201cAdd option\u201d to add more.",
+  sliderAria: "Randomness: low favors the lowest-score option, high makes all options equally likely",
+  sliderEndLeft: "Deterministic (spare high stats)",
+  // Direction-specific guidance phrases woven into the "How to use" box.
+  ruleHtml: "<strong>Here, being picked is BAD</strong>, so <strong>stats protect you</strong>: the higher an option's score, the <strong>lower</strong> its chance of being drawn (the best options are spared).",
+  deterministicPhrase: "a near-deterministic \u201clowest stats gets picked\u201d",
+  drawHighlight: "the unlucky option is highlighted in red",
+  perPickPhrase: "each pick still favors lower stats",
+  // Immune-feature guidance (woven into the page-1 "How to use" box only).
+  immuneHtml: 'Use the per-row <strong>Immune</strong> button (next to Remove) to mark an option ' +
+    '<strong>safe</strong> so it can <strong>never be picked</strong>: its chance drops to 0%, it gets ' +
+    'no votes in a poll, and the remaining options <strong>share all the odds</strong>; press it again to ' +
+    'let the option back into the draw.',
+});
+
+createPage({
+  root: document.getElementById("page2container"),
+  idPrefix: "p2_",
+  storageKey: PAGE2_KEY,
+  seed: SEED_PAGE2,
+  sign: +1, // favorHigh: exp(+score/T) => higher score = HIGHER chance
+  pickedWord: "winner",
+  promptSuffix: "Higher stats = more likely.",
+  caption: "Edit any cell to recompute the draw odds instantly; use \u201cAdd option\u201d to add more.",
+  sliderAria: "Randomness: low favors the highest-score option, high makes all options equally likely",
+  sliderEndLeft: "Deterministic (favor high stats)",
+  ruleHtml: "<strong>Here, being picked is GOOD</strong>, so <strong>stats help you</strong>: the higher an option's score, the <strong>higher</strong> its chance of being drawn (the best options get picked).",
+  deterministicPhrase: "a near-deterministic \u201chighest stats gets picked\u201d",
+  drawHighlight: "the winning option is highlighted",
+  perPickPhrase: "each pick still favors higher stats",
+});
+
+/* =========================================================================
+   PAGE SWITCHER wiring. Persists the active tab under ACTIVE_PAGE_KEY and
+   restores it on load. Only the active page's content is shown.
+   ========================================================================= */
+(function initSwitcher() {
+  const tabs = Array.prototype.slice.call(document.querySelectorAll(".tab-btn"));
+  const panels = {
+    page1: document.getElementById("page1container"),
+    page2: document.getElementById("page2container"),
+  };
+
+  function showPage(name) {
+    if (!panels[name]) name = "page1";
+    Object.keys(panels).forEach((key) => {
+      panels[key].hidden = (key !== name);
+    });
+    tabs.forEach((btn) => {
+      const on = btn.dataset.page === name;
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    try { localStorage.setItem(ACTIVE_PAGE_KEY, name); } catch (e) { /* best-effort */ }
+  }
+
+  tabs.forEach((btn) => {
+    btn.addEventListener("click", () => showPage(btn.dataset.page));
+  });
+
+  // Restore the persisted active page (default page1).
+  let active = "page1";
+  try {
+    const saved = localStorage.getItem(ACTIVE_PAGE_KEY);
+    if (saved === "page1" || saved === "page2") active = saved;
+  } catch (e) { /* best-effort */ }
+  showPage(active);
+})();
+</script>
+</body>
+</html>
